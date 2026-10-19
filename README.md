@@ -1,5 +1,6 @@
 # dsh-freeze
 
+> **If this helps you, please give it a star** — it helps others find it. Thanks!
 Hermetic composition lock for
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
 
