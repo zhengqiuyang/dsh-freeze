@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { diffFingerprints, fingerprintProfile } from '../lib/fingerprint.js';
-import { detectProfileName } from '../lib/index.js';
+import { detectProfileName, loadBaseline } from '../lib/index.js';
 
 let passed = 0;
 let failed = 0;
@@ -150,6 +150,26 @@ await test('--profile from argv in both forms, default web', () => {
   assert.equal(detectProfileName(['node', 'dsh', '--profile', 'work', 'web']), 'work');
   assert.equal(detectProfileName(['node', 'dsh', '--profile=ci', 'web']), 'ci');
   assert.equal(detectProfileName(['node', 'dsh', 'web']), 'web');
+});
+
+// T10:基线状态分级(absent/unreadable/malformed/ok)
+await test('baseline states distinguished: absent / malformed / ok', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'freeze-t10-'));
+  const p = join(dir, 'baseline.json');
+
+  const absent = await loadBaseline(p);
+  assert.equal(absent.status, 'absent');
+
+  writeFileSync(p, '{broken json..');
+  const malformed = await loadBaseline(p);
+  assert.equal(malformed.status, 'malformed');
+
+  writeFileSync(p, '{"profile":"x","fingerprint":"abc"}');
+  const okL = await loadBaseline(p);
+  assert.equal(okL.status, 'ok');
+  assert.equal(okL.value.fingerprint, 'abc');
+
+  rmSync(dir, { recursive: true, force: true });
 });
 
 console.log('');

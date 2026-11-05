@@ -51,11 +51,29 @@ export function profileDirFor(profile: string, envHome: string | undefined, home
   return join(root, 'profiles', profile);
 }
 
-async function loadBaseline(path: string): Promise<ProfileFingerprint | null> {
+export type BaselineLoad =
+  | { status: 'absent' }
+  | { status: 'unreadable'; error: string }
+  | { status: 'malformed'; error: string }
+  | { status: 'ok'; value: ProfileFingerprint };
+
+export async function loadBaseline(path: string): Promise<BaselineLoad> {
+  let text: string;
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as ProfileFingerprint;
-  } catch {
-    return null;
+    text = await readFile(path, 'utf8');
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code ?? '';
+    if (code === 'ENOENT') return { status: 'absent' };
+    return { status: 'unreadable', error: code || (e as Error).message.slice(0, 60) };
+  }
+  try {
+    const parsed = JSON.parse(text) as ProfileFingerprint;
+    if (typeof parsed !== 'object' || parsed === null || typeof parsed.fingerprint !== 'string') {
+      return { status: 'malformed', error: 'missing fingerprint field' };
+    }
+    return { status: 'ok', value: parsed };
+  } catch (e) {
+    return { status: 'malformed', error: (e as Error).message.slice(0, 60) };
   }
 }
 
@@ -68,8 +86,8 @@ export async function apply(ctx: Context, config: Config) {
     return;
   }
   const current = await fingerprintProfile(dir);
-  const baseline = await loadBaseline(config.baselinePath);
-  if (baseline === null) {
+  const loaded = await loadBaseline(config.baselinePath);
+  if (loaded.status === 'absent') {
     await mkdir(join(config.baselinePath, '..'), { recursive: true }).catch(() => {});
     await writeFile(config.baselinePath, JSON.stringify({ profile, ...current }, null, 2) + '\n', 'utf8');
     console.log(
@@ -78,6 +96,21 @@ export async function apply(ctx: Context, config: Config) {
     );
     return;
   }
+  if (loaded.status !== 'ok') {
+    // A damaged or unreadable baseline must never be silently overwritten —
+    // that would reset trust-on-first-use for a composition nobody approved.
+    const detail = loaded.status === 'unreadable' ? `unreadable (${loaded.error})` : `malformed JSON (${loaded.error})`;
+    const message =
+      `[dsh-freeze] baseline at ${config.baselinePath} is ${detail}. ` +
+      `Refusing to overwrite — inspect the file, then delete it deliberately to re-baseline.`;
+    if (config.strict) {
+      // Throwing from async apply fails plugin activation — the --frozen posture.
+      throw new Error(message);
+    }
+    console.warn(`[dsh-freeze] ${message}`);
+    return;
+  }
+  const baseline = loaded.value;
   const diff = diffFingerprints(baseline, current);
   if (diff.ok) {
     console.log(`[dsh-freeze] composition matches baseline (${current.fingerprint.slice(0, 16)}…)`);
