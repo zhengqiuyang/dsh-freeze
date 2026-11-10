@@ -48,6 +48,9 @@
   "engines": {
     "node": ">=20"
   },
+  "homepage": "https://github.com/zhengqiuyang/dsh-freeze#readme",
+  "bugs": { "url": "https://github.com/zhengqiuyang/dsh-freeze/issues" },
+  "author": "zhengqiuyang",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhengqiuyang/dsh-freeze.git"
